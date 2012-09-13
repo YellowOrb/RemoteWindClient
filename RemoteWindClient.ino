@@ -55,7 +55,7 @@ HardwareSerial gprsSerial = Serial;
 #endif
 
 char* apn = "online.telia.se"; // APN for mobile subscription
-char* serverStr = "remote-wind.heroku.com"; // server where to post data
+char* serverStr = "www.blast.nu"; // server where to post data
 int portNr = 80; // TCP/IP port for the webserver, usually 80
 int16_t httpResponse;
 
