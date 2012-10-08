@@ -57,13 +57,8 @@ unsigned long timePassedThisPeriod = 0; // the time this period was(measured)
 byte samplePeriodsPassed = 0; // number of SAMPLE_PERIODS passed so far during thie PERIOD
 unsigned int periodsPassed = 0; // keep counting number of periods to be able to do things once per hour or day
 
-#define MEASURE_STR_SIZE 4
-
-#define STATION_RESOURCE_SIZE 10
-char* stationResource = "/stations/";
 char* idStr = "xxxx"; // string used to store this stations is, registerStation fills in this value and is used when posting data
 char* imeiStr = "AABBBBBBCCCCCCEE";
-#define IMEI_SIZE 17
 
 yamlDataT stationData[] = { 
   { "id", idStr, strlen(idStr) }, 
@@ -71,6 +66,11 @@ yamlDataT stationData[] = {
 };
 
 const char* result;
+
+#define MEASURE_STR_SIZE 4
+char measureStr[MEASURE_STR_SIZE+1]; // short text string to store ascii versions of readings, +1 to fit trailing 0
+//max 4 chars to fit dir-values which can go up to 3600
+//max 4 chars to fit windspeed 9999 cm/s = 99.99 m/s
 
 //s    "speed"
 //d    "direction"
@@ -81,13 +81,10 @@ const char* result;
 // "m[s]=xxxx&m[d]=xxxx&m[i]=xxxx&m[max]=xxxx&m[min]=xxxx&m[t]=xxxx"
 char measureData[5+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE]; //63 chars
 
-// "measure[speed]=5.6&measure[direction]=183&measure[station_id]=183"
-//char measureData[15+4+20+4+21+4];
-
-char measureStr[MEASURE_STR_SIZE+1]; // short text string to store ascii versions of readings, +1 to fit trailing 0
-//max 4 chars to fit dir-values which can go up to 3600
-//max 4 chars to fit windspeed 9999 cm/s = 99.99 m/s
+#define IMEI_SIZE 17
 char postData[IMEI_SIZE+15]; // string for posting IMEI data
+
+#define STATION_RESOURCE_SIZE 10
 char resourcePath[STATION_RESOURCE_SIZE+5+IMEI_SIZE]; //
 
 // the perimeter is about 44 cm, we get two pulses per rotation, windPulses * 22 gives us distance in cm rotated
@@ -101,7 +98,6 @@ unsigned long maxPulses = 0; // max windPulses during SAMPLE_PERIOD
 unsigned long minPulses = 65535; // minimum amount of windPulses during SAMPLE_PERIOD
 
 char led = 0; // state variable for flashing the Arduino led at each input pulse
-
 
 /******************************************************************************
  * Check that we have GPRS
@@ -119,7 +115,6 @@ bool checkGPRSAndSetupContext(){
   return gprsModule.setupGPRSContext(apn,NULL,NULL);
 }
 
-
 unsigned int tmpValue;
 char length;
 void postPrePaidBalance() {
@@ -127,13 +122,13 @@ void postPrePaidBalance() {
   tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
   printlnInfo(tmpValue, DEC);
   if(0xffff!=tmpValue) {
-    itoa(tmpValue, measureStr, 10);
-    length = strlen(measureStr);
+    itoa(tmpValue, measureData, 10);
+    length = strlen(measureData);
     printlnInfo(length, DEC);
     if(IMEI_SIZE+15>length+5) {
       // postData will fit the info
       strcpy(postData, "s[b]=");
-      strcpy(&postData[5], measureStr);
+      strcpy(&postData[5], measureData);
       postData[length+5] = '\0';
       
       printInfo("Post: ");
@@ -166,7 +161,7 @@ bool registerStation(void) {
 #endif
 
   // get station id for reporting measures
-  strncpy(resourcePath,stationResource,STATION_RESOURCE_SIZE);
+  strncpy(resourcePath,"/stations/",STATION_RESOURCE_SIZE);
   strncpy(&resourcePath[STATION_RESOURCE_SIZE],"find/",5);
   strncpy(&resourcePath[STATION_RESOURCE_SIZE+5],imeiStr,IMEI_SIZE);
   gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, resourcePath, stationData, 2);
@@ -184,7 +179,7 @@ bool registerStation(void) {
     printlnInfo(postData);
     
     // register us
-    httpResponse = gprsModule.post(serverStr, portNr, stationResource, postData);
+    httpResponse = gprsModule.post(serverStr, portNr, "/stations/", postData);
     if(200 == httpResponse) {
       printlnInfo(" OK");
       // check we got registered and get our stationID
@@ -213,7 +208,7 @@ bool registerStation(void) {
 /******************************************************************************
  * Setup
  ******************************************************************************/
- static bool stationRegistered = false; // set by calling registerStation()
+static bool stationRegistered = false; // set by calling registerStation()
 void setup(){
   // setup serial ports
   debugSerial.begin(DEBUG_BAUD);               // used for debugging
@@ -269,7 +264,7 @@ void setup(){
   
   setupSensors();
   
-  printInfo("Station reg: ");
+  printInfo("Station: ");
   printlnInfo( idStr);
   
   if(!gprsModule.turnOffModule()) {
@@ -471,6 +466,7 @@ void loop(){
   measureAndReport();
   timePassed += millis() - startTime;
 }
+
 
 
 
