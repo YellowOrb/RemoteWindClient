@@ -1,15 +1,7 @@
 //#define NO_GSM // run without communicating with GSM, good for debugging
-#define SEEEDSTUDIO_HW // run on Seeeduino and SIM900 shield
-// #define MINI_HW // run on Arduino Pro Mini board
 
-#if defined(MINI_HW)
-//#include <SoftwareSerialB11.h>
-#endif
-#if defined(SEEEDSTUDIO_HW)
 #include <SoftwareSerial.h>
 #include <sim900REST.h>
-#endif
-
 #include <PinChangeInt.h>
 #include <MsTimer2.h>
 
@@ -35,27 +27,17 @@
 #define ledOn 1
 #define ledOff 0
 
-#ifdef SEEEDSTUDIO_HW
 #define rxPin 7
 #define txPin 8
 #define GPRS_BAUD 4800
 #define DEBUG_BAUD 19200
+
 HardwareSerial debugSerial = Serial;
 SoftwareSerial gprsSerial(rxPin, txPin);
 sim900REST gprsModule(gprsSerial, &Serial);
-#endif
-
-#ifdef MINI_HW
-#define rxPin 3
-#define txPin 2
-#define GPRS_BAUD 4800
-#define DEBUG_BAUD 9600
-SoftwareSerialB11 debugSerial(rxPin,txPin);
-HardwareSerial gprsSerial = Serial;
-#endif
 
 char* apn = "online.telia.se"; // APN for mobile subscription
-char* serverStr = "www.blast.nu"; // server where to post data
+char* serverStr = "blast.nu"; // server where to post data
 int portNr = 80; // TCP/IP port for the webserver, usually 80
 int16_t httpResponse;
 
@@ -106,7 +88,7 @@ char measureStr[MEASURE_STR_SIZE+1]; // short text string to store ascii version
 //max 4 chars to fit dir-values which can go up to 3600
 //max 4 chars to fit windspeed 9999 cm/s = 99.99 m/s
 char postData[IMEI_SIZE+15]; // string for posting IMEI data
-char find[STATION_RESOURCE_SIZE+5+IMEI_SIZE]; //
+char resourcePath[STATION_RESOURCE_SIZE+5+IMEI_SIZE]; //
 
 // the perimeter is about 44 cm, we get two pulses per rotation, windPulses * 22 gives us distance in cm rotated
 // we want to be able to measure up to 30-40m/s. 40 m/s will rotate the sensor 40/0.44 windPulses, we will get the double amount of pulses
@@ -140,7 +122,6 @@ bool checkGPRSAndSetupContext(){
 
 unsigned int tmpValue;
 char length;
-#ifdef POST_BALANCE
 void postPrePaidBalance() {
   // read the balance from out prepaid card and report it back
   tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
@@ -149,15 +130,21 @@ void postPrePaidBalance() {
     itoa(tmpValue, measureStr, 10);
     length = strlen(measureStr);
     printlnInfo(length, DEC);
-    if(IMEI_SIZE+15>length+17+1) {
+    if(IMEI_SIZE+15>length+5) {
       // postData will fit the info
-      strcpy(postData, "station[balance]=");
-      strcpy(&postData[17], measureStr);
-          
+      strcpy(postData, "s[b]=");
+      strcpy(&postData[5], measureStr);
+      postData[length+5] = '\0';
+      
       printInfo("Post: ");
       printInfo(postData);
-       
-      httpResponse = gprsModule.post(serverStr, portNr, "/measures/", measureData);
+      
+      strncpy(resourcePath,"/s/",3);
+      length = strlen(idStr);
+      strncpy(&resourcePath[3], idStr, length);
+      resourcePath[3+length] = '\0'; // end the str
+
+      httpResponse = gprsModule.put(serverStr, portNr, resourcePath, postData);
       if(200 == httpResponse) {
         printlnInfo(" OK");
       } else {
@@ -167,29 +154,22 @@ void postPrePaidBalance() {
     }
   }
 }
-#endif
 
 /******************************************************************************
- * Check that we have GPRS
+ * check if we are registered and get station ID or register us and get our station ID
  * @return bool 
  ******************************************************************************/
-static bool stationRegistered = false; // set by registerStation()
 bool registerStation(void) {
 #ifdef NO_GSM
   stationRegistered = true;
   return true;
 #endif
-  // check if we are registered and get station ID or register us and get our station ID
-  printlnError("Reg station");
-  if(!checkGPRSAndSetupContext()) {
-    return false;
-  }
-  printlnError("GPRS up");
+
   // get station id for reporting measures
-  strncpy(find,stationResource,STATION_RESOURCE_SIZE);
-  strncpy(&find[STATION_RESOURCE_SIZE],"find/",5);
-  strncpy(&find[STATION_RESOURCE_SIZE+5],imeiStr,IMEI_SIZE);
-  gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, find, stationData, 2);
+  strncpy(resourcePath,stationResource,STATION_RESOURCE_SIZE);
+  strncpy(&resourcePath[STATION_RESOURCE_SIZE],"find/",5);
+  strncpy(&resourcePath[STATION_RESOURCE_SIZE+5],imeiStr,IMEI_SIZE);
+  gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, resourcePath, stationData, 2);
   if(200 == gprsModule.yamlResponse.resultCode) {
     // we found our imei registered
     printError("Station:");
@@ -208,7 +188,7 @@ bool registerStation(void) {
     if(200 == httpResponse) {
       printlnInfo(" OK");
       // check we got registered and get our stationID
-      gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, find, stationData, 2);
+      gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, resourcePath, stationData, 2);
       if(200 == gprsModule.yamlResponse.resultCode) {
         // we found our imei registered
         printError("Station:");
@@ -225,28 +205,15 @@ bool registerStation(void) {
       printlnInfo(httpResponse, DEC);
       return false;
     }
-  }
-  // postPrePaidBalance();
-  gprsModule.destroyGPRSContext();
-  printlnError("GPRS down");
-  
-  stationRegistered = true; // idStr now has the correct id of this station
+  } 
+  // idStr now has the correct id of this station
   return true;
-}
-
-/******************************************************************************
- * measureWindSpeed is called on every edge on the wind rotation sensor, 
- * increase number of windPulses and toggle the Arduino LED
- ******************************************************************************/
-void measureWindSpeed() {
-  windPulses++;
-  digitalWrite(arduinoLED, led);
-  led = led ? 0:1;
 }
 
 /******************************************************************************
  * Setup
  ******************************************************************************/
+ static bool stationRegistered = false; // set by calling registerStation()
 void setup(){
   // setup serial ports
   debugSerial.begin(DEBUG_BAUD);               // used for debugging
@@ -263,10 +230,10 @@ void setup(){
 // configure and initialize GSM module communication
 // keep on trying till we succeed since we cannot continute if we do not do this
 // turn on module
-//  while(!gprsModule.turnOnModule()) {
-//    delay(2000);
-//    printlnInfo("+");
-//  }
+  while(!gprsModule.turnOnModule()) {
+    delay(2000);
+    printlnInfo("+");
+  }
 
   while(!gprsModule.init()) {
     delay(2000);
@@ -282,68 +249,32 @@ void setup(){
   printInfo("IMEI: ");
   printlnInfo(imeiStr);
   
-  // try to register us
-  while(!registerStation()) {
-    printlnInfo(".");
-    delay(30000); // wait 30 seconds before next attempt
+  //tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
+  //printlnInfo(tmpValue, DEC);
+  if(checkGPRSAndSetupContext()) {
+    printlnError("GPRS up");
+  
+    // try to register us
+    while(!(stationRegistered = registerStation())) {
+      printlnInfo(".");
+      delay(30000); // wait 30 seconds before next attempt
+    }
+  
+    // read service provider and post pre paid balance
+    postPrePaidBalance();
+  
+    gprsModule.destroyGPRSContext();
+    printlnError("GPRS down");
   }
+  
+  setupSensors();
   
   printInfo("Station reg: ");
   printlnInfo( idStr);
-  // attach a simple counter on the interrupt of the rising edge on the wind speed sensor
-  PCintPort::attachInterrupt(WIND_SPEED_PIN, measureWindSpeed, RISING);
-}
-
-/******************************************************************************
- * Check that we have GPRS
- * @return int 
- ******************************************************************************/
-unsigned int dir = 0;
-unsigned int previousDir = 0;
-int value;
-unsigned int getWindDirection() {
-  // read the analog input
-  value = analogRead(WIND_DIR_PIN);
-
-  if((value>240) && (value<260)) {
-    // north
-    // check what we read previously, if on the west-side use 360 instead of 0 to build up an average which can go over 315.
-    if(previousDir > 1800) {
-      dir = 3600;
-    } else {
-      dir = 0;
-    }
-  } 
-  else if((value>576) && (value<596)) {
-    // ne
-    dir = 450;
-  } 
-  else if((value>921) && (value<941)) {
-    // east
-    dir = 900;
-  } 
-  else if((value>855) && (value<875)) {
-    // se
-    dir = 1350;
-  } 
-  else if((value>740) && (value<760)) {
-    // south
-    dir = 1800;
-  } 
-  else if((value>406) && (value<426)) {
-    // sw
-    dir = 2250;
-  } 
-  else if((value>68) && (value<88)) {
-    // west
-    dir = 2700;
-  } 
-  else if((value>147) && (value<167)) {
-    // nw
-    dir = 3150;
+  
+  if(!gprsModule.turnOffModule()) {
+    printlnError("Failed off");
   }
-  previousDir = dir;
-  return dir;
 }
 
 /******************************************************************************
@@ -408,7 +339,7 @@ void measureAndReport() {
   }
   
   if(samplePeriodsPassed >= (PERIOD/SAMPLE_PERIOD)) {
-//    periodsPassed++;
+    periodsPassed++;
     // period has passed, report results
     // A wind speed of 1.492 MPH (2.4 km/h) causes the switch to close once per second. 1 pulse per second should be 0.6667 m/s
     // the perimeter is about 44 cm, we get two pulses per rotation => one pulse per second means half that distance, 22 cm which is not
@@ -436,10 +367,10 @@ void measureAndReport() {
     dir_avr = dir_avr/(2*PERIOD); // divide with 2 times PERIOD since we get 2 samples per second and PERIOD is defined in seconds
     printlnInfo(dir_avr, DEC);
     
-//    while(!gprsModule.turnOnModule()) {
-//      delay(2000);
-//      printlnInfo("+");
-//    }
+    while(!gprsModule.turnOnModule()) {
+      delay(2000);
+      printlnInfo("+");
+    }
 
     if(stationRegistered && checkGPRSAndSetupContext() ) {
       // build up post data
@@ -502,26 +433,23 @@ void measureAndReport() {
         printlnInfo(httpResponse,DEC);
       }
       
-//      if(periodsPassed%(ONCE_PER_HOUR/PERIOD) == 0) {
+      if(periodsPassed%(ONCE_PER_HOUR/PERIOD) == 0) {
         // anything we want to do once each hour
         // nothing at the moment
-      //}
+      }
         
-//      if(periodsPassed%(ONCE_PER_DAY/PERIOD) == 0) {
-//        periodsPassed = 0; // reset the counter
-        
-//        postPrePaidBalance();
-        
-//      }
-//      if(periodsPassed%(ONCE_PER_DAY/PERIOD) == 0) {
-//        periodsPassed = 0; // reset the counter
-//      }  
+      if(periodsPassed%(ONCE_PER_DAY/PERIOD) == 0) {
+        // anything we want to do once each day
+        periodsPassed = 0; // reset the counter
+        postPrePaidBalance();
+      }
+      
       gprsModule.destroyGPRSContext();
       printlnError("GPRS down");
       
-//      if(!gprsModule.turnOffModule()) {
-//        printlnError("Failed off");
-//      }
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
     }
 #endif
     dir_avr = 0;
