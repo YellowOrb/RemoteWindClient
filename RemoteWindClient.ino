@@ -1,19 +1,23 @@
+/**************************************************************************
+*
+*
+**************************************************************************/
+#define REMOTE_WIND_CLIENT_VERSION "v0.6"
 //#define NO_GSM // run without communicating with GSM, good for debugging
 
 #include <SoftwareSerial.h>
 #include <sim900REST.h>
 #include <PinChangeInt.h>
-#include <MsTimer2.h>
 
-#define DEBUG_INFO
+//#define DEBUG_INFO
 
-#if defined(DEBUG_INFO)
+//#if defined(DEBUG_INFO)
 #define printInfo(...) debugSerial.print(__VA_ARGS__)
 #define printlnInfo(...) debugSerial.println(__VA_ARGS__); debugSerial.flush()
-#else
+//#else
 //#define debug(INFO,...)
 //#define debugln(INFO,...)
-#endif
+//#endif
 
 #ifdef DEBUG_ERROR
 #define printError(...) debugSerial.print(__VA_ARGS__)
@@ -29,7 +33,7 @@
 
 #define rxPin 7
 #define txPin 8
-#define GPRS_BAUD 4800
+#define GPRS_BAUD 2400
 #define DEBUG_BAUD 19200
 
 HardwareSerial debugSerial = Serial;
@@ -51,11 +55,6 @@ int16_t httpResponse;
 #define PERIOD (5L*MINUTE)      // period between samples sent to server, 5 minutes
 #define ONCE_PER_HOUR (60L*MINUTE)
 #define ONCE_PER_DAY (24L*ONCE_PER_HOUR)
-unsigned long timePassed = 0; // time passed variable used to measure time for PERIOD and SAMPLE_PERIOD
-unsigned long timePassedSinceLastSample = 0; // amount of time since we last took a sample on values
-unsigned long timePassedThisPeriod = 0; // the time this period was(measured)
-byte samplePeriodsPassed = 0; // number of SAMPLE_PERIODS passed so far during thie PERIOD
-unsigned int periodsPassed = 0; // keep counting number of periods to be able to do things once per hour or day
 
 char* idStr = "xxxx"; // string used to store this stations is, registerStation fills in this value and is used when posting data
 char* imeiStr = "AABBBBBBCCCCCCEE";
@@ -65,10 +64,7 @@ yamlDataT stationData[] = {
   { "hw_id", imeiStr, strlen(imeiStr) },
 };
 
-const char* result;
-
 #define MEASURE_STR_SIZE 4
-char measureStr[MEASURE_STR_SIZE+1]; // short text string to store ascii versions of readings, +1 to fit trailing 0
 //max 4 chars to fit dir-values which can go up to 3600
 //max 4 chars to fit windspeed 9999 cm/s = 99.99 m/s
 
@@ -79,25 +75,19 @@ char measureStr[MEASURE_STR_SIZE+1]; // short text string to store ascii version
 //min    "min_wind_speed"
 //t    "temperature"
 // "m[s]=xxxx&m[d]=xxxx&m[i]=xxxx&m[max]=xxxx&m[min]=xxxx&m[t]=xxxx"
-char measureData[5+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE]; //63 chars
-
-#define IMEI_SIZE 17
-char postData[IMEI_SIZE+15]; // string for posting IMEI data
-
-#define STATION_RESOURCE_SIZE 10
-char resourcePath[STATION_RESOURCE_SIZE+5+IMEI_SIZE]; //
+char dataString[5+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+8+MEASURE_STR_SIZE+6+MEASURE_STR_SIZE]; //63 chars
 
 // the perimeter is about 44 cm, we get two pulses per rotation, windPulses * 22 gives us distance in cm rotated
 // we want to be able to measure up to 30-40m/s. 40 m/s will rotate the sensor 40/0.44 windPulses, we will get the double amount of pulses
 // thats about 182 pulses per second, and we need to store 182*PERIOD in windPulses = 54 545 pulses, a byte is way to small
 // unsigned int max is 65535 which is during 300s is about 48 m/s. probably the hardware wont sustain this:)
-volatile unsigned int windPulses=0;    // a counter to see how many times the pin has changed, defined volatile since set by an interrupt
 
-unsigned long totalPulses = 0; // total amount of windPulses during PERIOD
-unsigned long maxPulses = 0; // max windPulses during SAMPLE_PERIOD
-unsigned long minPulses = 65535; // minimum amount of windPulses during SAMPLE_PERIOD
-
-char led = 0; // state variable for flashing the Arduino led at each input pulse
+char startError = 0; // state variable to store any errors occuring during setup
+#define START_ERROR_CANNOT_TURN_ON_GSM 1
+#define START_ERROR_CANNOT_INIT_GSM 2
+#define START_ERROR_CANNOT_READ_IMEI 3
+#define START_ERROR_CANNOT_GET_GPRS 4
+#define START_ERROR_CANNOT_REGISTER 5
 
 /******************************************************************************
  * Check that we have GPRS
@@ -107,45 +97,119 @@ bool checkGPRSAndSetupContext(){
 #ifdef NO_GSM  
   return true;
 #endif
-  // wait until we have GPRS available
-  while(!gprsModule.isGPRSAvailable()) {
-    printlnError("No GPRS");
-    delay(5000);
+  int error;
+  char i,j;
+  // try 5 times to get GRPS up and running
+  for(j=0;j<5;j++) {
+    // turn on module
+    // keep trying five times to succeed since we cannot continute if we do not do this
+    for(i=0;i<5;i++) {
+      if(!gprsModule.turnOnModule()){
+        // failed
+        delay(2000);
+        printlnInfo("+");
+      } else {
+        // interrupt for-loop since we successfully turned on the GSM module
+        break;
+      }
+    }
+    if(5==i) {
+      // if we didnt break out turnOff and restart
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      delay(1000);
+      continue;
+    }
+  
+    printlnInfo("on");
+    
+    for(i=0;i<10;i++) {
+      // wait until we have GPRS available
+      if(GPRS_AVAILABLE_OK!=(error=gprsModule.isGPRSAvailable())) {
+        printInfo("No ");
+        printInfo("GPRS");
+        printInfo(": ");
+        printlnInfo(error, DEC);
+        if(2==error) {
+          printInfo("Signal");
+          printInfo(": ");
+          printlnInfo(gprsModule.getSignalStrength(), DEC);
+        }
+        delay(2000);
+      } else {
+        // interrupt for-loop since we got GPRS up
+        break;
+      }
+    }
+    if(10==i) {
+      // if we didnt break out turnOff and restart
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      delay(1000);
+      continue;
+    }
+  
+    printlnInfo("GPRS");
+  
+    for(i=0;i<3;i++) {
+      if(GPRS_CONTEXT_OK!=(error=gprsModule.setupGPRSContext(apn,NULL,NULL))) {
+        printInfo("No context");
+        printInfo(": ");
+        printlnInfo(error, DEC);
+        delay(500);
+      } else {
+        // interrupt for-loop since we got a GPRS context
+        break;
+      }
+    }
+    if(3==i) {
+      // if we didnt break out turnOff and return false
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      delay(1000);
+      continue;
+    }
+    // if we reached this point all went well, break out from the for
+    break;
   }
-  return gprsModule.setupGPRSContext(apn,NULL,NULL);
+  
+  // we could not get GPRS up and running after five tries, give up
+  if(5==j) {
+    // if we didnt break out turnOff and return false
+    if(!gprsModule.turnOffModule()) {
+      printlnError("Failed off");
+    }
+    return false;
+  }
+  return true;
 }
 
-unsigned int tmpValue;
-char length;
 void postPrePaidBalance() {
   // read the balance from out prepaid card and report it back
-  tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
+  unsigned int tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
   printlnInfo(tmpValue, DEC);
   if(0xffff!=tmpValue) {
-    itoa(tmpValue, measureData, 10);
-    length = strlen(measureData);
-    printlnInfo(length, DEC);
-    if(IMEI_SIZE+15>length+5) {
-      // postData will fit the info
-      strcpy(postData, "s[b]=");
-      strcpy(&postData[5], measureData);
-      postData[length+5] = '\0';
-      
-      printInfo("Post: ");
-      printInfo(postData);
-      
-      strncpy(resourcePath,"/s/",3);
-      length = strlen(idStr);
-      strncpy(&resourcePath[3], idStr, length);
-      resourcePath[3+length] = '\0'; // end the str
+    strcpy(dataString, "s[b]=");
+    itoa(tmpValue, &dataString[strlen(dataString)], 10); // will null terminate the string in dataString
+     
+    printInfo("Post");
+    printInfo(": ");
+    printInfo(dataString);
+    
+    char *resourcePath = &dataString[strlen(dataString)+1];
+    strcpy(resourcePath,"/s/");
+    strcat(resourcePath, idStr);
 
-      httpResponse = gprsModule.put(serverStr, portNr, resourcePath, postData);
-      if(200 == httpResponse) {
-        printlnInfo(" OK");
-      } else {
-        printInfo(" err: ");
-        printlnInfo(httpResponse,DEC);
-      }
+    httpResponse = gprsModule.put(serverStr, portNr, resourcePath, dataString);
+    if(200 == httpResponse) {
+      printlnInfo(" OK");
+    } else {
+      printInfo(" err");
+      printInfo(": ");
+      printlnInfo(httpResponse,DEC);
     }
   }
 }
@@ -161,21 +225,25 @@ bool registerStation(void) {
 #endif
 
   // get station id for reporting measures
-  strncpy(resourcePath,"/stations/",STATION_RESOURCE_SIZE);
-  strncpy(&resourcePath[STATION_RESOURCE_SIZE],"find/",5);
-  strncpy(&resourcePath[STATION_RESOURCE_SIZE+5],imeiStr,IMEI_SIZE);
-  gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, resourcePath, stationData, 2);
+  strcpy(dataString,"/stations/");
+  strcat(dataString,"find/");
+  strcat(dataString, imeiStr);
+  gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, dataString, stationData, 2);
   if(200 == gprsModule.yamlResponse.resultCode) {
     // we found our imei registered
-    printError("Station:");
-    printlnError(idStr);
+    printInfo("Station");
+    printInfo(": ");
+    printlnInfo(idStr);
   } else if(404 == gprsModule.yamlResponse.resultCode) {
     // station not found
-    printlnError("Not found");
+    printlnInfo("Not found");
     // our imei was not in the server, register as a new station
-    strncpy(postData, "station[hw_id]=", 15);
-    strncpy(&postData[15], imeiStr, IMEI_SIZE);
-    printInfo("Post: ");
+    char *postData = dataString + (strlen(dataString)+1)*sizeof(char);
+    strcpy(postData, "station[hw_id]=");
+    strcat(postData, imeiStr);
+    
+    printInfo("Post");
+    printInfo(": ");
     printlnInfo(postData);
     
     // register us
@@ -183,10 +251,11 @@ bool registerStation(void) {
     if(200 == httpResponse) {
       printlnInfo(" OK");
       // check we got registered and get our stationID
-      gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, resourcePath, stationData, 2);
+      gprsModule.yamlResponse = gprsModule.getWithYAMLResponse(serverStr, portNr, dataString, stationData, 2);
       if(200 == gprsModule.yamlResponse.resultCode) {
         // we found our imei registered
-        printError("Station:");
+        printError("Station");
+        printError(": ");
         printlnError(idStr);
       } else if(404 == gprsModule.yamlResponse.resultCode) {
         printlnError("Not found");
@@ -196,11 +265,17 @@ bool registerStation(void) {
         return false;
       }
     } else {
-      printInfo(" err: ");
+      printInfo(" err");
+      printInfo(": ");
       printlnInfo(httpResponse, DEC);
       return false;
     }
-  } 
+  } else {
+    printInfo(" err");
+    printInfo(": ");
+    printlnInfo(gprsModule.yamlResponse.resultCode, DEC);
+    return false;
+  }
   // idStr now has the correct id of this station
   return true;
 }
@@ -209,79 +284,173 @@ bool registerStation(void) {
  * Setup
  ******************************************************************************/
 static bool stationRegistered = false; // set by calling registerStation()
+char i,j;
 void setup(){
-  // setup serial ports
+    // setup serial ports
   debugSerial.begin(DEBUG_BAUD);               // used for debugging
 #ifndef NO_GSM
   gprsSerial.begin(GPRS_BAUD);
 #endif
-  printlnInfo("Init");
+  printInfo("RemoteWindClient ");
+  printlnInfo(REMOTE_WIND_CLIENT_VERSION);
+  printInfo("SIM900Module ");
+  printlnInfo(SIM900_MODULE_VERSION);
   
   // illuminate Arduino LED
   pinMode(arduinoLED, OUTPUT);
   digitalWrite(arduinoLED, ledOn);
-
+  
+  do {
+    // inidicate startError if we have one, i.e. restart of setup
+    if(0!=startError){
+      printInfo("Start");
+      printInfo(" err");
+      printInfo(": ");
+      printlnInfo(startError);
+      // repeat error code blinking for 15 minutes, ie. 30 half minutes
+      for(j=0;j<30;j++) {
+        for(i=0;i<10;i++) {
+          // blink during 10 seconds
+          if(startError>0) {
+            digitalWrite(arduinoLED, 1);
+          }
+          delay(500);
+          if(startError>0) {
+            digitalWrite(arduinoLED, 0);
+            startError--;
+          }
+          delay(500);
+        } // end for
+        delay(20000); // wait another 20 seconds
+      } // end for
+    } // make a new try to register and setup
+    
 #ifndef NO_GSM
-// configure and initialize GSM module communication
-// keep on trying till we succeed since we cannot continute if we do not do this
-// turn on module
-  while(!gprsModule.turnOnModule()) {
-    delay(2000);
-    printlnInfo("+");
-  }
-
-  while(!gprsModule.init()) {
-    delay(2000);
-    printlnInfo("-");
-  }
-
-  // read our IMEI
-  result = gprsModule.getIMEI();
-  if(strlen(result)>0) {
-    strncpy(imeiStr,result,IMEI_SIZE);
-  }
-#endif
-  printInfo("IMEI: ");
-  printlnInfo(imeiStr);
-  
-  //tmpValue = gprsModule.getPrePaidBalance("*120#", "Saldo", "kr.");
-  //printlnInfo(tmpValue, DEC);
-  if(checkGPRSAndSetupContext()) {
-    printlnError("GPRS up");
-  
-    // try to register us
-    while(!(stationRegistered = registerStation())) {
-      printlnInfo(".");
-      delay(30000); // wait 30 seconds before next attempt
+    // turn on module
+    // keep trying five times to succeed since we cannot continute if we do not do this
+    for(i=0;i<5;i++) {
+      if(!gprsModule.turnOnModule()){
+        // failed
+        delay(2000);
+        printlnInfo("+");
+      } else {
+        // interrupt for-loop since we successfully turned on the GSM module
+        break;
+      }
     }
+    if(5==i) {
+      // if we didnt break out try to turn off and restart setup
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      startError = START_ERROR_CANNOT_TURN_ON_GSM;
+      continue;
+    }
+
+    // configure and initialize GSM module communication
+    for(i=0;i<5;i++) {
+      if(!gprsModule.init()) {
+        // failed
+        delay(2000);
+        printlnInfo("-");
+      } else {
+        // interrupt for-loop since we successfully initialized GSM
+        break;
+      }
+    }
+    if(5==i) {
+      // if we didnt break out try to turn off and restart setup
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      startError = START_ERROR_CANNOT_INIT_GSM;
+      continue;
+    }
+    
+    // read our IMEI
+    const char* result = gprsModule.getIMEI();
+    if(strlen(result)>0) {
+      strcpy(imeiStr,result);
+    } else {
+      // we could not read the IMEI, try to turn off and restart setup
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+      startError = START_ERROR_CANNOT_READ_IMEI;
+      continue;
+    }
+#endif
+    printInfo("IMEI");
+    printInfo(": ");
+    printlnInfo(imeiStr);
+    if(!gprsModule.turnOffModule()) {
+      printlnError("Failed off");
+    }  
+    if(checkGPRSAndSetupContext()) {
+      printlnError("GPRS up");
   
-    // read service provider and post pre paid balance
-    postPrePaidBalance();
+      // try to register us
+      for(i=0;i<5;i++) {
+        if(!(stationRegistered = registerStation())) {
+          // failed
+          printlnInfo(".");
+          delay(10000); // wait 10 seconds before next attempt
+        } else {
+          // interrupt for-loop since we successfully registered
+          break;
+        }
+      }
+      if(5==i) {
+        // if we didnt break out try to turn off and restart setup
+        if(!gprsModule.turnOffModule()) {
+          printlnError("Failed off");
+        }
+        startError = START_ERROR_CANNOT_REGISTER;
+        continue;
+      }
+      // read service provider and post pre paid balance
+      postPrePaidBalance();
   
-    gprsModule.destroyGPRSContext();
-    printlnError("GPRS down");
-  }
+      gprsModule.destroyGPRSContext();
+      printlnError("GPRS down");
+      
+      if(!gprsModule.turnOffModule()) {
+        printlnError("Failed off");
+      }
+    } else {
+      startError = START_ERROR_CANNOT_GET_GPRS;
+      continue;
+    }
+  } while(!stationRegistered);
   
+  // communication is up and we have registered station
   setupSensors();
   
-  printInfo("Station: ");
-  printlnInfo( idStr);
-  
-  if(!gprsModule.turnOffModule()) {
-    printlnError("Failed off");
-  }
+  printInfo("Station");
+  printInfo(": ");
+  printlnInfo(idStr);
 }
 
 /******************************************************************************
  * measure values and report if enough time has passed
  ******************************************************************************/
-long unsigned int dir_avr = 0; //max is 1890000
+long unsigned int directionSum = 0; //max is 1890000
+unsigned int directionSamples = 0;
 unsigned long pulses;
 unsigned long avgPulses;
-char totalLength;
-void measureAndReport() {
-  // measure wind direction and add it to the dir_avr
-  dir_avr += getWindDirection();
+unsigned long totalPulses = 0; // total amount of windPulses during PERIOD
+unsigned long maxPulses = 0; // max windPulses during SAMPLE_PERIOD
+unsigned long minPulses = 65535; // minimum amount of windPulses during SAMPLE_PERIOD
+
+unsigned long timePassed = 0; // time in ms passed variable used to measure time for PERIOD and SAMPLE_PERIOD
+unsigned long timePassedSinceLastSample = 0; // amount of time in ms since we last took a sample on values
+unsigned long timePassedThisPeriod = 0; // the time in ms of this period (measured)
+
+byte samplePeriodsPassed = 0; // number of SAMPLE_PERIODS passed so far during thie PERIOD
+void measure() {
+  // measure wind direction and add it to the directionSum
+  directionSum += getWindDirection();
+  directionSamples++;
   
   printError(timePassed,DEC);
   printError(", ");
@@ -289,22 +458,27 @@ void measureAndReport() {
   // if a sample period has passed, calculate this periods min max
   if(timePassed >= SAMPLE_PERIOD*1000L) { // timePassed is calculated in loop()
     printlnError(NULL);
+    
+    samplePeriodsPassed += timePassed/(SAMPLE_PERIOD*1000L); // keep track of how many periods the total includes
     timePassedSinceLastSample = timePassed;
-    
-    printInfo( timePassedSinceLastSample);
-    printInfo( ", ");
-    
+    timePassed = 0;
+     
     timePassedThisPeriod += timePassedSinceLastSample;
+ 
+    printInfo( timePassedThisPeriod);
+    printInfo( "(");
+    printInfo( timePassedSinceLastSample);
+    printInfo( "), ");   
     
-    pulses = windPulses*100L; // scale up the pulse variable 100 times
-    windPulses = 0;
+    pulses = getAndResetWindSpeed()*100L; // scale up the pulse variable 100 times
     
     // calculate approx windPulses / s
     // we measure time in millis seconds and the minimum we can stora is 1 rotation / s and we update this twize every second so we
     // need to use the milliseconds timing thus multiply the windPulses with 1000 since we cannot handle fractions
     // so if pulses == 1, then that would give us 2 if the time is 500 ms
     avgPulses = pulses * 1000L;
-    printError(", pulses = ");
+    printlnError(NULL);
+    printError(" pulses = ");
     printError(pulses);
     printError(", 1000*pulses = ");
     printError(avgPulses);   
@@ -324,147 +498,137 @@ void measureAndReport() {
     printError(maxPulses);
     printError(", min pulses = ");
     printlnError(minPulses);
-    
-    samplePeriodsPassed += timePassed/(SAMPLE_PERIOD*1000L);
-    timePassed = timePassed%(SAMPLE_PERIOD*1000L);
-    printError(", time = ");
-    printError(timePassed);
-    printError(" periods = ");
-    printlnError(samplePeriodsPassed);
   }
+}
+
+unsigned int periodsPassed = 0; // keep counting number of periods to be able to do things once per hour or day
+unsigned long startConnectionTime;
+unsigned long lastReportTime;
+char totalLength;
+void report() {  
+  periodsPassed++; // used to do things once an hour or day
+  // period has passed, report results
+    
+  startConnectionTime = millis();
+
+  // A wind speed of 1.492 MPH (2.4 km/h) causes the switch to close once per second. 1 pulse per second should be 0.6667 m/s
+  // the perimeter is about 44 cm, we get two pulses per rotation => one pulse per second means half that distance, 22 cm which is not
+  // 66.7 cm!
+    
+  // Measured radii = 7 cm, perimeter is 2 * pi * radii = 43.982288 cm
+  // totalPulses are measured during PERIOD(25 seconds or 300 seconds(5 minutes))
+
+  // totalPulses/PERIOD is pulses per second and if we multiply with 67 cm/s we get current speed in cm/s
+  printError("tot pulses = ");
+  printlnError(totalPulses);
+    
+  printlnInfo();
   
-  if(samplePeriodsPassed >= (PERIOD/SAMPLE_PERIOD)) {
-    periodsPassed++;
-    // period has passed, report results
-    // A wind speed of 1.492 MPH (2.4 km/h) causes the switch to close once per second. 1 pulse per second should be 0.6667 m/s
-    // the perimeter is about 44 cm, we get two pulses per rotation => one pulse per second means half that distance, 22 cm which is not
-    // 66.7 cm!
+  totalPulses = totalPulses/(samplePeriodsPassed*SAMPLE_PERIOD);
+  samplePeriodsPassed = 0;
+  printInfo("w:");
+  printInfo((totalPulses*67L)/100L, DEC);
+  printInfo("(");
+  printInfo((maxPulses*67L)/100L, DEC);
+  printInfo("/");
+  printInfo((minPulses*67L)/100L, DEC);
+  printlnInfo(")");
     
-    // Measured radii = 7 cm, perimeter is 2 * pi * radii = 43.982288 cm
-    // totalPulses are measured during PERIOD(25 seconds or 300 seconds(5 minutes))
+  // average over a number of running samples
+  printInfo("d:");
+  directionSum = directionSum/directionSamples; // divide with number of times we have read the direction to get an average
+  printlnInfo(directionSum, DEC);
+    
+  if(stationRegistered && checkGPRSAndSetupContext() ) {
+    // build up post data
+    // "m[s]=xxxx&m[d]=xxxx&m[i]=xxxx&m[max]=xxxx&m[min]=xxxx&m[t]=xxxx"
+    // char dataString[5+4+6+4+6+4+8+4+8+4+6+4]; //63 chars
 
-    // totalPulses/PERIOD is pulses per second and if we multiply with 67 cm/s we get current speed in cm/s
-    printError("tot pulses = ");
-    printlnError(totalPulses);
-    
-    printlnInfo();
-    
-    printInfo("w:");
-    printInfo((totalPulses*67L)/PERIOD/100L, DEC);
-    printInfo("(");
-    printInfo((maxPulses*67L)/100L, DEC);
-    printInfo("/");
-    printInfo((minPulses*67L)/100L, DEC);
-    printlnInfo(")");
-    
-    // average over a number of running samples
-    printInfo("d:");
-    dir_avr = dir_avr/(2*PERIOD); // divide with 2 times PERIOD since we get 2 samples per second and PERIOD is defined in seconds
-    printlnInfo(dir_avr, DEC);
-    
-    while(!gprsModule.turnOnModule()) {
-      delay(2000);
-      printlnInfo("+");
-    }
-
-    if(stationRegistered && checkGPRSAndSetupContext() ) {
-      // build up post data
-      // "m[s]=xxxx&m[d]=xxxx&m[i]=xxxx&m[max]=xxxx&m[min]=xxxx&m[t]=xxxx"
-      // char measureData[5+4+6+4+6+4+8+4+8+4+6+4]; //63 chars
-
-      // windPulses
-      strncpy(measureData, "m[s]=", 5);
-      itoa((totalPulses*67L)/PERIOD/100L, measureStr, 10);
-      length=strlen(measureStr);
-      strncpy(&measureData[5], measureStr, length);
-      totalLength = 5 + length;
+    // windPulses
+    strcpy(dataString, "m[s]=");
+    itoa((totalPulses*67L)/100L, &dataString[strlen(dataString)], 10);
       
-      strncpy(&measureData[totalLength], "&m[d]=", 6);
-      itoa(dir_avr, measureStr, 10);
-      length = strlen(measureStr);
-      strncpy(&measureData[totalLength+6], measureStr, length);
-      totalLength += 6 + length;      
+    strcat(dataString, "&m[d]=");
+    itoa(directionSum, &dataString[strlen(dataString)], 10);
+           
+    strcat(dataString, "&m[i]=");
+    strcat(dataString, idStr);
       
-      strncpy(&measureData[totalLength], "&m[i]=", 6);
-      length = strlen(idStr);
-      strncpy(&measureData[totalLength+6], idStr, length);
-      totalLength += 6 + length;
-      
-      strncpy(&measureData[totalLength], "&m[max]=", 8);
-      itoa((maxPulses*67L)/100L, measureStr, 10);
-      length = strlen(measureStr);
-      strncpy(&measureData[totalLength+8], measureStr, length);
-      totalLength += 8 + length;
+    strcat(dataString, "&m[max]=");
+    itoa((maxPulses*67L)/100L, &dataString[strlen(dataString)], 10);
     
-      strncpy(&measureData[totalLength], "&m[min]=", 8);
-      itoa((minPulses*67L)/100L, measureStr, 10);
-      length = strlen(measureStr);
-      strncpy(&measureData[totalLength+8], measureStr, length);
-      totalLength += 8 + length;
+    strcat(dataString, "&m[min]=");
+    itoa((minPulses*67L)/100L, &dataString[strlen(dataString)], 10);
 
 #ifdef MEASTURE_TEMP
-      strncpy(&measureData[totalLength], "&m[t]=", 6);
+    strcat(dataString, "&m[t]=");
 #ifdef NO_GSM
-      itoa(20, measureStr, 10);
+    itoa(20, &dataString[strlen(dataString)], 10);
 #else
-      itoa(gprsModule.getTemperatur(), measureStr, 10);
+    itoa(gprsModule.getTemperatur(), &dataString[strlen(dataString)], 10);
 #endif
-      length = strlen(measureStr);
-      strncpy(&measureData[totalLength+6], measureStr, length);
-      totalLength += 6 + length;
-#endif
-
-      measureData[totalLength] = 0; // end the str
-     
-      printInfo( "Post: "); 
-      printInfo(measureData);
+#endif     
+    printInfo( "Post");
+    printInfo(": "); 
+    printInfo(dataString);
 
 #ifndef NO_GSM
-      httpResponse = gprsModule.post(serverStr, portNr, "/measures/", measureData);
-      if(200 == httpResponse) {
-        printlnInfo(" OK");
-      } else {
-        printInfo(" err: ");
-        printlnInfo(httpResponse,DEC);
-      }
-      
-      if(periodsPassed%(ONCE_PER_HOUR/PERIOD) == 0) {
-        // anything we want to do once each hour
-        // nothing at the moment
-      }
-        
-      if(periodsPassed%(ONCE_PER_DAY/PERIOD) == 0) {
-        // anything we want to do once each day
-        periodsPassed = 0; // reset the counter
-        postPrePaidBalance();
-      }
-      
-      gprsModule.destroyGPRSContext();
-      printlnError("GPRS down");
-      
-      if(!gprsModule.turnOffModule()) {
-        printlnError("Failed off");
-      }
+    httpResponse = gprsModule.post(serverStr, portNr, "/measures/", dataString);
+    if(200 == httpResponse) {
+      printlnInfo(" OK");
+    } else {
+      printInfo(" err");
+      printInfo(": ");
+      printlnInfo(httpResponse,DEC);
     }
-#endif
-    dir_avr = 0;
-    totalPulses = 0;
-    maxPulses = 0;
-    minPulses = 65535;
-    samplePeriodsPassed = 0;
-    timePassedThisPeriod = 0;
+      
+    if(periodsPassed%(ONCE_PER_HOUR/PERIOD) == 0) {
+      // anything we want to do once each hour
+      // nothing at the moment
+    }
+        
+    if(periodsPassed%(ONCE_PER_DAY/PERIOD) == 0) {
+      // anything we want to do once each day
+      periodsPassed = 0; // reset the counter
+      postPrePaidBalance();
+    }
+      
+    gprsModule.destroyGPRSContext();
+    printlnError("GPRS down");
+      
+    if(!gprsModule.turnOffModule()) {
+      printlnError("Failed off");
+    }
+    lastReportTime = millis() - startConnectionTime;
   }
+#endif
+  directionSum = 0;
+  directionSamples = 0;
+  totalPulses = 0;
+  maxPulses = 0;
+  minPulses = 65535;
+  samplePeriodsPassed = 0;
+  timePassedThisPeriod = 0;
 }
 
 /******************************************************************************
  * Loop
  ******************************************************************************/
 unsigned long startTime;
+unsigned int sleepTime = 500;
 void loop(){
   startTime = millis();
-  delay(500);
-  measureAndReport();
+  delay(sleepTime);
+//  printInfo("Time ");
+//  printInfo(timePassed);
+//  printInfo(" Sleept ");
+//  printlnInfo(sleepTime);
+  measure();
+  if(timePassedThisPeriod  >= PERIOD*1000L) {
+    report();
+  }
   timePassed += millis() - startTime;
+  sleepTime = 500 - timePassed%500;
 }
 
 
