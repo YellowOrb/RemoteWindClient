@@ -1,27 +1,31 @@
+#include <SoftwareSerial.h>
+
 /**************************************************************************
 *
 *
 **************************************************************************/
 #define REMOTE_WIND_CLIENT_VERSION "v0.6"
-//#define NO_GSM // run without communicating with GSM, good for debugging
+#define NO_GSM // run without communicating with GSM, good for debugging
 
 #include <SoftwareSerial.h>
 #include <sim900REST.h>
 #include <PinChangeInt.h>
 
-//#define DEBUG_INFO
+#define DEBUG_INFO
+#define DEBUG_ERROR
 
-//#if defined(DEBUG_INFO)
-#define printInfo(...) debugSerial.print(__VA_ARGS__)
-#define printlnInfo(...) debugSerial.println(__VA_ARGS__); debugSerial.flush()
+
+#if defined(DEBUG_INFO)
+#define printInfo(...) Serial.print(__VA_ARGS__)
+#define printlnInfo(...) Serial.println(__VA_ARGS__); Serial.flush()
 //#else
 //#define debug(INFO,...)
 //#define debugln(INFO,...)
-//#endif
+#endif
 
 #ifdef DEBUG_ERROR
-#define printError(...) debugSerial.print(__VA_ARGS__)
-#define printlnError(...) debugSerial.println(__VA_ARGS__); debugSerial.flush()
+#define printError(...) Serial.print(__VA_ARGS__)
+#define printlnError(...) Serial.println(__VA_ARGS__); Serial.flush()
 #else
 #define printError(...)
 #define printlnError(...)
@@ -36,7 +40,6 @@
 #define GPRS_BAUD 2400
 #define DEBUG_BAUD 19200
 
-HardwareSerial debugSerial = Serial;
 SoftwareSerial gprsSerial(rxPin, txPin);
 sim900REST gprsModule(gprsSerial, &Serial);
 
@@ -95,6 +98,9 @@ char startError = 0; // state variable to store any errors occuring during setup
  ******************************************************************************/
 bool checkGPRSAndSetupContext(){
 #ifdef NO_GSM  
+  #ifdef DEBUG_INFO 
+    printlnInfo("Skipping GSM Setup (NO_GSM defined)");
+  #endif
   return true;
 #endif
   int error;
@@ -218,8 +224,12 @@ void postPrePaidBalance() {
  * check if we are registered and get station ID or register us and get our station ID
  * @return bool 
  ******************************************************************************/
+static bool stationRegistered = false; // set by calling registerStation()
 bool registerStation(void) {
 #ifdef NO_GSM
+  #ifdef DEBUG_INFO
+    printlnInfo("Skipping registration.");
+  #endif
   stationRegistered = true;
   return true;
 #endif
@@ -283,13 +293,16 @@ bool registerStation(void) {
 /******************************************************************************
  * Setup
  ******************************************************************************/
-static bool stationRegistered = false; // set by calling registerStation()
+
 char i,j;
 void setup(){
     // setup serial ports
-  debugSerial.begin(DEBUG_BAUD);               // used for debugging
+  Serial.begin(DEBUG_BAUD);               // used for debugging
 #ifndef NO_GSM
   gprsSerial.begin(GPRS_BAUD);
+#endif
+#ifdef NO_GSM
+  stationRegistered = true;
 #endif
   printInfo("RemoteWindClient ");
   printlnInfo(REMOTE_WIND_CLIENT_VERSION);
@@ -300,7 +313,7 @@ void setup(){
   pinMode(arduinoLED, OUTPUT);
   digitalWrite(arduinoLED, ledOn);
   
-  do {
+  while (!stationRegistered) {
     // inidicate startError if we have one, i.e. restart of setup
     if(0!=startError){
       printInfo("Start");
@@ -421,7 +434,8 @@ void setup(){
       startError = START_ERROR_CANNOT_GET_GPRS;
       continue;
     }
-  } while(!stationRegistered);
+    
+  }
   
   // communication is up and we have registered station
   setupSensors();
@@ -434,8 +448,9 @@ void setup(){
 /******************************************************************************
  * measure values and report if enough time has passed
  ******************************************************************************/
-long unsigned int directionSum = 0; //max is 1890000
-unsigned int directionSamples = 0;
+long directionVectorX = 0;
+long directionVectorY = 0;
+short directionAvg;
 unsigned long pulses;
 unsigned long avgPulses;
 unsigned long totalPulses = 0; // total amount of windPulses during PERIOD
@@ -448,12 +463,17 @@ unsigned long timePassedThisPeriod = 0; // the time in ms of this period (measur
 
 byte samplePeriodsPassed = 0; // number of SAMPLE_PERIODS passed so far during thie PERIOD
 void measure() {
-  // measure wind direction and add it to the directionSum
-  directionSum += getWindDirection();
-  directionSamples++;
+  
+  // Wind direction. Sum X and Y vectors (then use atan2 to calculate the average angle).
+  // By multiplying the vector with pulses a stronger wind will contribute more to the calculated average
+  // Only check direction sensor if we have wind.
+  if (pulses > 0) {
+    directionVectorY += (long)(sin(getWindDirection() * 3.14159 / 180) * pulses);
+    directionVectorX += (long)(cos(getWindDirection() * 3.14159 / 180) * pulses);
+  }  
   
   printError(timePassed,DEC);
-  printError(", ");
+  printlnError(", ");
   
   // if a sample period has passed, calculate this periods min max
   if(timePassed >= SAMPLE_PERIOD*1000L) { // timePassed is calculated in loop()
@@ -464,11 +484,31 @@ void measure() {
     timePassed = 0;
      
     timePassedThisPeriod += timePassedSinceLastSample;
- 
+    
+    printInfo( timePassedThisPeriod);
+    printInfo( "(");
+    printInfo( timePassedSinceLastSample);
+    printInfo( "), ");  
+   
+    // Wind direction
+    if (directionVectorX == 0 && directionVectorY == 0) { // if the direction sensor has not been read
+      directionAvg = NULL;  // There is no wind, thus no wind direction
+    }else{
+      // atan2 gives an angle in the interval -pi --- pi
+      directionAvg = atan2(directionVectorY, directionVectorX) * 180 / 3.14159; // Radians to degrees
+      if (directionAvg < 0) directionAvg += 360;  // Let angle always be positive
+    }
+    
+    printError("avg direction: ");
+    printlnError(directionAvg);
+   
+  
+    /*
     printInfo( timePassedThisPeriod);
     printInfo( "(");
     printInfo( timePassedSinceLastSample);
     printInfo( "), ");   
+    */
     
     pulses = getAndResetWindSpeed()*100L; // scale up the pulse variable 100 times
     
@@ -498,6 +538,7 @@ void measure() {
     printError(maxPulses);
     printError(", min pulses = ");
     printlnError(minPulses);
+    
   }
 }
 
@@ -534,11 +575,6 @@ void report() {
   printInfo((minPulses*67L)/100L, DEC);
   printlnInfo(")");
     
-  // average over a number of running samples
-  printInfo("d:");
-  directionSum = directionSum/directionSamples; // divide with number of times we have read the direction to get an average
-  printlnInfo(directionSum, DEC);
-    
   if(stationRegistered && checkGPRSAndSetupContext() ) {
     // build up post data
     // "m[s]=xxxx&m[d]=xxxx&m[i]=xxxx&m[max]=xxxx&m[min]=xxxx&m[t]=xxxx"
@@ -549,7 +585,7 @@ void report() {
     itoa((totalPulses*67L)/100L, &dataString[strlen(dataString)], 10);
       
     strcat(dataString, "&m[d]=");
-    itoa(directionSum, &dataString[strlen(dataString)], 10);
+    itoa(directionAvg, &dataString[strlen(dataString)], 10);
            
     strcat(dataString, "&m[i]=");
     strcat(dataString, idStr);
@@ -600,15 +636,14 @@ void report() {
       printlnError("Failed off");
     }
     lastReportTime = millis() - startConnectionTime;
+    #endif
   }
-#endif
-  directionSum = 0;
-  directionSamples = 0;
   totalPulses = 0;
   maxPulses = 0;
   minPulses = 65535;
   samplePeriodsPassed = 0;
   timePassedThisPeriod = 0;
+  directionVectorX = directionVectorY = 0;
 }
 
 /******************************************************************************
