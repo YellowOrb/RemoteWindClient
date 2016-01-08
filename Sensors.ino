@@ -1,10 +1,22 @@
+// only want interrupt on port C
+#define EI_NOTPORTC
+#define EI_NOTPORTD
+#define EI_NOTEXTERNAL
+#include <EnableInterrupt.h>
+
 #define arduinoLED 13
 char led = 0; // state variable for flashing the Arduino led at each input pulse
 
-#define WIND_SPEED_PIN 10 // digital pin 10
+#define WIND_SPEED_PIN 10 // digital pin 10, port PB2
 #define WIND_DIR_PIN 0 // analog 0
 
 volatile unsigned int windPulses=0;    // a counter to see how many times the pin has changed, defined volatile since set by an interrupt
+
+void initWindSensor() {
+    // attach a simple counter on the interrupt of the rising edge on the wind speed sensor
+    enableInterrupt(WIND_SPEED_PIN, measureWindSpeed, RISING);
+    debugln(F("- wind sensor initialized."));
+}
 
 /******************************************************************************
  * measureWindSpeed is called on every edge on the wind rotation sensor, 
@@ -91,15 +103,9 @@ unsigned int getWindDirection() {
   
   //printError(" dir: ");
   //printlnError(dir);
-  return dir;
-  
-  
+  return dir;  
 }
 
-void setupSensors() {
-    // attach a simple counter on the interrupt of the rising edge on the wind speed sensor
-  PCintPort::attachInterrupt(WIND_SPEED_PIN, measureWindSpeed, RISING);
-}
 
 
 
