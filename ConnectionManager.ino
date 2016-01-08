@@ -2,11 +2,11 @@ SIM900GPRS gsm;
 SIM900Client client(&gsm);
 uint8_t tries;
 
-#define HOST "www.yelloworb.com"
-#define PORT 3000
+//#define HOST "www.yelloworb.com"
+//#define PORT 3000
 
-//#define HOST "www.blast.nu"
-//#define PORT 80
+#define HOST "www.blast.nu"
+#define PORT 80
 
 //#define HOST "remote-wind-staging.herokuapp.com"
 //#define PORT 80
@@ -141,7 +141,7 @@ static connected_state_t previousConnectedState;
 void setConnectionState(connected_state_t newState) {
   previousConnectedState = connectionState;
   debug(F("Switching connection state from "));printConnectionState(connectionState);debug(F(" to "));printConnectionState(newState);debugln(F("."));
-  debug(F("CM Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("setConnectionState start free RAM: "));debug(freeRam());debugln(F(" bytes."));
   switch(previousConnectedState) {
     case CONNECTED_TO_SERVER:
       switch(newState) {
@@ -215,7 +215,7 @@ void setConnectionState(connected_state_t newState) {
       }
       break;
   }
-  debug(F("CM Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("setConnectionState end free RAM: "));debug(freeRam());debugln(F(" bytes."));
 }
 
 /**

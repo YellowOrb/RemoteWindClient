@@ -67,7 +67,7 @@ void disableTimeSyncViaHeaders() {
  * hmacSign - set to true if a hmac signature should be generated for authenticated calls
  */
 bool initializeRequest(HttpMethod_t method, char *resourcePath, const char *body, bool hmacSign = false) {
-  debug(F("initializeRequest Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  int freeRAMAtStart = freeRam();
   char *header = rest.initialize(method, resourcePath);
   
   header = rest.addHeader(PSTR("Accept: application/json; version=1.0"));
@@ -80,7 +80,9 @@ bool initializeRequest(HttpMethod_t method, char *resourcePath, const char *body
   
   client.beginWrite();
   
-  debug(F("initializeRequest Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  if(freeRAMAtStart > freeRam()) {
+    debug(F("initializeRequest cunsumes RAM: "));debug(freeRAMAtStart - freeRam());debugln(F(" bytes."));
+  }
   return true;
 }
 
@@ -91,7 +93,7 @@ const char monthShortNames_P[] PROGMEM = "ErrJanFebMarAprMayJunJulAugSepOctNovDe
  * connectionClosed parameter - pointer to boolen indicating if connection is still open or not, if open more requests can follow without connecting to server again
  */
 int finishRequest(bool* connectionClosed) {
-  debug(F("finishRequest Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  int freeRAMAtStart = freeRam();
   char *dateHeader = NULL;
   size_t dateHeaderSize = 0;
   char *headers[2];
@@ -189,7 +191,10 @@ int finishRequest(bool* connectionClosed) {
     free(dateHeader);
   }
   free(connectionHeader);
-  debug(F("finishRequest Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  
+  if(freeRAMAtStart > freeRam()) {
+    debug(F("finishRequest cunsumes RAM: "));debug(freeRAMAtStart - freeRam());debugln(F(" bytes."));
+  }
   
   return responseCode;
 }
@@ -200,7 +205,7 @@ int finishRequest(bool* connectionClosed) {
  * Must be in connected state SERVER for this to work and is not checked for
  */
 int getStationId(char * imeiStr) {
-  debug(F("getStationId Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("getStationId start free RAM: "));debug(freeRam());debugln(F(" bytes."));
   int stationId = 0;
   char *requestPath = (char *)malloc(16+16+1); 
   // '/stations/find/' + imeiStr and the ending 0. - 16 + 16 + 1 characters
@@ -226,7 +231,7 @@ int getStationId(char * imeiStr) {
     }
   }
   free(requestPath);
-  debug(F("getStationId Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("getStationId end free RAM: "));debug(freeRam());debugln(F(" bytes."));
   return stationId;
 }
 
@@ -236,7 +241,7 @@ int getStationId(char * imeiStr) {
  * Must be in connected state SERVER for this to work
  */
 bool reportObservation(int stationId, int direction, int speed, int minWindSpeed, int maxWindSpeed) {
-  debug(F("reportObservation Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("reportObservation start free RAM: "));debug(freeRam());debugln(F(" bytes."));
   bool result = false;
   char *requestPath = (char *)malloc(14 + 1); // /observations/ + 0 
   strcpy_P(requestPath, PSTR("/observations/"));
@@ -280,7 +285,7 @@ bool reportObservation(int stationId, int direction, int speed, int minWindSpeed
   }
   free(requestPath);
   free(body);
-  debug(F("reportObservation Free RAM: "));debug(freeRam());debugln(F(" bytes."));
+  debug(F("reportObservation end free RAM: "));debug(freeRam());debugln(F(" bytes."));
   return result;
 }
 

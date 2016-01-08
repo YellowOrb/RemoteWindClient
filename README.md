@@ -1,8 +1,10 @@
 # RemoteWindClient
-The Arduino client for RemoteWind
+The Arduino client for [RemoteWind](https://github.com/remote-wind/remote-wind).
 
+## Explanation ##
+RemoteWindClient is an Arduino sketch that reads wind speed and direction using a SparkFun [Weather Meter](https://www.sparkfun.com/products/8942). It sends these readings to [http://blast.nu](http://blast.nu) using a SeeedStudio [GPRS Shield](http://www.seeedstudio.com/wiki/GPRS_Shield_V3.0).
 
-3459798234982374 Åre Strand imei
+The examples below uses the IMEI 3459798234982374 which is the same as our station at Åre Strand.
 
 A station posting wind data to [RemoteWind](https://github.com/remote-wind/remote-wind) first asks for its id using its IMEI number:
 ```
@@ -10,17 +12,38 @@ curl -X GET "http://localhost:3000/stations/find/3459798234982374"
 ```
 The response back is a JSON with its id: ```{"id":7}```
 
+After that the station will also reports it's current software version for easier management of devices.
+```
+curl -X PUT "http://localhost:3000/stations/{id}/firmware_version.json" -d "station[firmware_version]=v1.1.2-21-g9c66f94&station[gsm_software]=1137B10SIM900M64_ST_PZ"
+```
+
 After that is can use this id to post new readings:
 ```
 curl -X POST "http://localhost:3000/observations/" -d "observation[station_id]=7&observation[direction]=426&observation[speed]=0&observation[min_wind_speed]=0&observation[max_wind_speed]=0"
 ```
- 
- 
-**NOT YET IMPLEMENTED**
 
-The station will also reports it's current software version for easier management of devices.
-```
-curl -X PUT "http://localhost:3000/stations/{id}/firmware_version.json" - d "station[firmware_version]=v1.1.2-21-g9c66f94&station[gsm_software]=1137B10SIM900M64_ST_PZ"
-```
+## Build environment setup ##
+[Download](https://www.arduino.cc/en/Main/OldSoftwareReleases#previous) the 1.6.4 version of the Arduino IDE.
 
+In the libraries folder checkout the following libraries:
+
+* [GSMGPRS_Shield](https://github.com/YellowOrb/GSMGPRS_Shield)
+* [SoftwareSerial by YellowOrb](https://github.com/YellowOrb/SoftwareSerial_by_YellowOrb)
+* [arduino-restclient](https://github.com/YellowOrb/arduino-restclient)
+* [Time](https://github.com/YellowOrb/Time)
+* [EnableInterrupt](https://github.com/GreyGnome/EnableInterrupt)
+
+
+Add the following git hooks to get automatic update of the version/build number, both a `post-commit` and a `pre-push`. The hooks are just executable text files so create these using you favorite editor. Both should look like this and be created in the .git/hooks folder:
+
+```
+#!/bin/sh
+#
+version=$(git describe --tags --long)
+echo "#define VERSION \""$version"\"" > ./version.h
+```
+## Development hints##
+###Tagging a new release###
+To create a new tag use the command line ```git tag -a v1.4 -m "my version 1.4"```.
+After tagging make a push with the new tag included like ```git push origin v1.5```.
 

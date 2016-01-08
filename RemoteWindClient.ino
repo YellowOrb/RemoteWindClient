@@ -2,9 +2,6 @@
 *
 *
 **************************************************************************/
-#define REMOTE_WIND_CLIENT_VERSION "v0.6"
-//#define NO_GSM // run without communicating with GSM, good for debugging
-
 #include <SoftwareSerial_by_YO.h>
 #include <Time.h>
 #include <RestClient.h>
@@ -16,6 +13,7 @@
 #define ledOn 1
 #define ledOff 0
 
+// Hardware configuration used by this sketch
 // the normal remote wind client is built on a Seeeduino V3.0 and the Seeedstudio GPRS shield
 // http://www.seeedstudio.com/wiki/GPRS_Shield_V1.0
 // http://www.seeedstudio.com/wiki/GPRS_Shield_V2.0
@@ -25,13 +23,17 @@
 // 7 and 8 for software serial communication if jumpers in that position
 // 9 for power on/off
 
+// the wind speed sensor on pin 10
+
 // define rx and tx for debug info
-// use pin 7 to receive from sim900 and pin 8 to send, thus interrupts on port B will ba available to detect wind speed 
-// from the wind speed sensor on pin 10
-// pin 7 is on port D so we need to use PCINT2
-#define USE_PCINT2
+// use pin 5 to receive
+// Currently we do not receive any debug information pin 5. But if we want to receive debug 
+// info in the future, pin 5 is on port D so we need to tell SoftwareSerial_by_YO to use PCINT2.
+// If another pin is used, check what port here https://github.com/GreyGnome/EnableInterrupt#arduino-uno
+// #define USE_PCINT2 // tell SoftwareSerial_by_YO to listen on pin change interrupts on Port D
 #define rxPin 5
 #define txPin 6
+
 // define baudrates
 #define GPRS_BAUD 19200
 #define DEBUG_BAUD 19200
@@ -74,10 +76,6 @@ void setup(){
   softserial.begin(DEBUG_BAUD);
 #endif
 
-#ifdef NO_GSM
-  stationRegistered = true;
-#endif
- 
   debugln(F("RemoteWindClient started"));
   debugln(F("Build: " __DATE__ " " __TIME__));
   debug(  F("Arduino IDE version: "));debugln( ARDUINO, DEC);
