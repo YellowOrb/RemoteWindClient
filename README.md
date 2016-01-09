@@ -14,12 +14,12 @@ The response back is a JSON with its id: ```{"id":7}```
 
 After that the station will also reports it's current software version for easier management of devices.
 ```
-curl -X PUT "http://localhost:3000/stations/{id}/firmware_version.json" -d "station[firmware_version]=v1.1.2-21-g9c66f94&station[gsm_software]=1137B10SIM900M64_ST_PZ"
+curl -X PUT "http://localhost:3000/stations/7/firmware_version.json" -d "station[firmware_version]=v1.1.2-21-g9c66f94&station[gsm_software]=1137B10SIM900M64_ST_PZ"
 ```
 
 After that is can use this id to post new readings:
 ```
-curl -X POST "http://localhost:3000/observations/" -d "observation[station_id]=7&observation[direction]=426&observation[speed]=0&observation[min_wind_speed]=0&observation[max_wind_speed]=0"
+curl -X POST "http://localhost:3000/stations/7/observations/" -d "observation[direction]=426&observation[speed]=0&observation[min_wind_speed]=0&observation[max_wind_speed]=0"
 ```
 
 ## Build environment setup ##
