@@ -243,22 +243,22 @@ int getStationId(char * imeiStr) {
 bool reportObservation(int stationId, int direction, int speed, int minWindSpeed, int maxWindSpeed) {
   debug(F("reportObservation start free RAM: "));debug(freeRam());debugln(F(" bytes."));
   bool result = false;
-  char *requestPath = (char *)malloc(14 + 1); // /observations/ + 0 
-  strcpy_P(requestPath, PSTR("/observations/"));
+  int stationIdLengthAsString = (stationId == 0 ? 1 : (int)(log10(stationId)+1));
+  // 123456789012345678901234567890
+  // /stations//observations/ + 0 - 24 characters
+  char *requestPath = (char *)malloc(24 + stationIdLengthAsString + 1);
+  strcpy_P(requestPath, PSTR("/stations/"));
+  ultoa(stationId, &requestPath[strlen(requestPath)], 10);
+  strcat_P(requestPath, PSTR("/observations/"));
   
   // 123456789012345678901234567890123
-  // observation[station_id]=xxxxx      // 0-10000 - 39 characters
-  // &observation[direction]=3600       // 0-3600  - 38 characters
+  // observation[direction]=3600        // 0-3600  - 37 characters
   // &observation[speed]=nnnn           // 0-1000  - 34 characters
   // &observation[min_wind_speed]=nnnn  // 0-1000  - 43 characters
   // &observation[max_wind_speed]=nnnn  // 0-1000  - 43 characters
   
-  time_t time;
-
-  char *body = (char *)malloc(39 + 38 + 34 + 43 + 43 + 1); 
-  strcpy_P(body, PSTR("observation[station_id]="));
-  ultoa(stationId, &body[strlen(body)], 10);
-  strcat_P(body, PSTR("&observation[direction]="));
+  char *body = (char *)malloc(37 + 34 + 43 + 43 + 1); 
+  strcpy_P(body, PSTR("observation[direction]="));
   ultoa(direction, &body[strlen(body)], 10);
   strcat_P(body, PSTR("&observation[speed]="));
   ultoa(speed, &body[strlen(body)], 10);
@@ -267,7 +267,7 @@ bool reportObservation(int stationId, int direction, int speed, int minWindSpeed
   strcat_P(body, PSTR("&observation[max_wind_speed]="));
   ultoa(maxWindSpeed, &body[strlen(body)], 10);  
     
-  debug(F("Report observation "));debugln(body);
+  debug(F("Report "));debug(requestPath);debug(' ');debugln(body);
     
   if(initializeRequest(POST, requestPath, body, true)) {
     rest.execute(HOST, body, strlen(body), false);
@@ -297,7 +297,9 @@ bool reportObservation(int stationId, int direction, int speed, int minWindSpeed
 bool reportFirmware(int stationId) {
   bool result = false;
   int stationIdLengthAsString = (stationId == 0 ? 1 : (int)(log10(stationId)+1));
-  char *requestPath = (char *)malloc(9 + stationIdLengthAsString + 22 + 1); // /readers/ + reader id + /firmware_version.json + 0 
+  // 123456789012345678901234567890123
+  // /stations//firmware_version.json/ + 0 - 33 characters
+  char *requestPath = (char *)malloc(33 + stationIdLengthAsString + 1);
   strcpy_P(requestPath, PSTR("/stations/"));
   ultoa(stationId, &requestPath[strlen(requestPath)], 10);
   strcat_P(requestPath, PSTR("/firmware_version.json"));
@@ -307,9 +309,9 @@ bool reportFirmware(int stationId) {
   // &station[gsm_software]=1137B10SIM900M64_ST_PZ // 23 + 22 = 45
   // '\0'
   char *body = (char *)malloc(26 + strlen(PSTR(VERSION)) + 45 + 1); 
-  strcpy_P(body, PSTR("reader[firmware_version]="));
+  strcpy_P(body, PSTR("station[firmware_version]="));
   strcat_P(body,PSTR(VERSION));
-  strcat_P(body,PSTR("&reader[gsm_software]="));
+  strcat_P(body,PSTR("&station[gsm_software]="));
   strcat(body, gsm.getSoftwareVersion());
   
   debug(F("Report firmware using body "));debug(F("("));debug(strlen(body));debug(F("):"));debugln(body);
