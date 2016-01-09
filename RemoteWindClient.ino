@@ -47,7 +47,7 @@ int stationId = 0;
 // normally samples min and max every 15 seconds, for debugging 5 seconds is good
 #define SAMPLE_PERIOD 30L  // period in seconds for which min and max samples are taken
 #define MINUTE (2L*SAMPLE_PERIOD)
-#define PERIOD (2L*MINUTE)      // period between samples sent to server, 5 minutes
+#define PERIOD (5L*MINUTE)      // period between samples sent to server, 5 minutes
 #define ONCE_PER_HOUR (60L*MINUTE)
 #define ONCE_PER_DAY (24L*ONCE_PER_HOUR)
 
