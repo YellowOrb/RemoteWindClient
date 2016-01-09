@@ -20,7 +20,7 @@ const char PROGMEM contentTypeHeaderStr[] = "Content-Type: application/x-www-for
 #define CONTENT_TYPE_STR_CONTENT_START 14
 
 void initREST() {
-  debug(F("- REST client initialized."));
+  debugln(F("- REST client initialized."));
 }
 
 /**
