@@ -33,6 +33,7 @@ In the libraries folder checkout the following libraries:
 * [Time](https://github.com/YellowOrb/Time)
 * [EnableInterrupt](https://github.com/GreyGnome/EnableInterrupt)
 
+To be able to compile you need to set the board to Duemilanove or Diecimila and processor ATmega328. And the SoftwareSerial_by_YellowOrb needs to be changed; add #define NOT_USE_PCINT0 on line 31 or similar in [SoftwareSerial_by_YO.cpp](https://github.com/YellowOrb/SoftwareSerial_by_YellowOrb/blob/master/SoftwareSerial_by_YO.cpp#L31)
 
 Add the following git hooks to get automatic update of the version/build number, both a `post-commit` and a `pre-push`. The hooks are just executable text files so create these using you favorite editor. Both should look like this and be created in the .git/hooks folder:
 
