@@ -13,6 +13,7 @@ uint8_t tries;
 
 void initConnectionManager() {
   Serial.begin(GPRS_BAUD);
+  //gsm.setDebugSerial(&softserial);
   gsm.turnOn();
   gsm.activateDateTime();
   debug(F("- Connection manager has initialized GSM modem. GSM module software version: "));debugln(gsm.getSoftwareVersion());

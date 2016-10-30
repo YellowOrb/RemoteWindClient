@@ -8,6 +8,7 @@ bool syncTimeViaHeaders = false;
 uint32_t noHTTPSyncsSinceLastGSMSync = 0;
 uint32_t timeLastGSMSync = 0;
 
+//#define HOST "www.blast.nu"
 
 RestClient rest(&client, response, RESPONSE_SIZE);
 
@@ -21,6 +22,9 @@ const char PROGMEM contentTypeHeaderStr[] = "Content-Type: application/x-www-for
 
 void initREST() {
   debugln(F("- REST client initialized."));
+#ifdef DEBUG_ACTIVE
+//  rest.setDebugSerial(&softserial);
+#endif
 }
 
 /**
