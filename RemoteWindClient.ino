@@ -22,12 +22,16 @@
 // 2 and 3 for hardware based serial communication
 // 7 and 8 for software serial communication if jumpers in that position
 // 9 for power on/off
+// Experience says it is quite hard to get the software serial stable and thus it is recommended to use the hardware and that is the default behaviour
+// of this sketch.
+//
+// pin 0 is used for the wind direction
+// pin 10 is used for the wind speed sensor
+// pin 5 and 6 are used for debugging
 
-// the wind speed sensor on pin 10
 
 // define rx and tx for debug info
-// use pin 5 to receive
-// Currently we do not receive any debug information pin 5. But if we want to receive debug 
+// Regarding using pin 5: Currently we do not receive any debug information. But if we want to receive debug 
 // info in the future, pin 5 is on port D so we need to tell SoftwareSerial_by_YO to use PCINT2.
 // If another pin is used, check what port here https://github.com/GreyGnome/EnableInterrupt#arduino-uno
 // #define USE_PCINT2 // tell SoftwareSerial_by_YO to listen on pin change interrupts on Port D
@@ -37,8 +41,6 @@
 // define baudrates
 #define GPRS_BAUD 19200
 #define DEBUG_BAUD 19200
-
-int stationId = 0;
 
 #define WIND_SPEED_PIN 10 // digital pin 10
 #define WIND_DIR_PIN 0 // analog 0
@@ -57,7 +59,7 @@ int stationId = 0;
 // unsigned int max is 65535 which is during 300s is about 48 m/s. probably the hardware wont sustain this:)
 
 /******************************************************************************
- * Setup
+ * Configure debug
  ******************************************************************************/
 #define DEBUG_ACTIVE true
 SoftwareSerial_by_YO softserial(rxPin,txPin); // rxpin, txpin
@@ -69,7 +71,15 @@ SoftwareSerial_by_YO softserial(rxPin,txPin); // rxpin, txpin
   if (DEBUG_ACTIVE) { softserial.println(__VA_ARGS__); } \
 } while (false)
 
+/******************************************************************************
+ * Global variables
+ ******************************************************************************/
 char i,j;
+int stationId = 0;
+
+/******************************************************************************
+ * Setup
+ ******************************************************************************/
 void setup(){
  
 #ifdef DEBUG_ACTIVE
@@ -135,6 +145,9 @@ void setup(){
   initWindSensor();
 }
 
+/******************************************************************************
+ * Watchdog setup - used to restart if unresponsive
+ ******************************************************************************/
 #define DELAY_INTERVAL 500
 void watchdogSafeDelay(uint32_t delayTimeInMs) {
   wdt_reset();
@@ -297,7 +310,7 @@ int freeRam() {
 }
 
 /******************************************************************************
- * Loop
+ * Loop - the main loop
  ******************************************************************************/
 unsigned long startTime;
 unsigned int sleepTime = 500;
