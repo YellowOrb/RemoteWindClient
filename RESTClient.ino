@@ -1,5 +1,6 @@
 #include <SIM900.h>
 #include <RestClient.h>
+#include "stdio.h"
 
 #define RESPONSE_SIZE 200
 char response[RESPONSE_SIZE];
@@ -239,12 +240,25 @@ int getStationId(char * imeiStr) {
   return stationId;
 }
 
+char *ftoa(char *a, float f, int precision)
+{
+ long p[] = {0,10,100,1000,10000,100000,1000000,10000000,100000000};
+ 
+ char *ret = a;
+ long whole_number = (long)f;
+ itoa(whole_number, a, 10);
+ while (*a != '\0') a++;
+ *a++ = '.';
+ long decimal = abs((long)((f - whole_number) * p[precision]));
+ itoa(decimal, a, 10);
+ return ret;
+}
 
 /**
  * Report wind data
  * Must be in connected state SERVER for this to work
  */
-bool reportObservation(int stationId, int direction, int speed, int minWindSpeed, int maxWindSpeed) {
+bool reportObservation(int stationId, float direction, float speed, float minWindSpeed, float maxWindSpeed) {
   debug(F("reportObservation start free RAM: "));debug(freeRam());debugln(F(" bytes."));
   bool result = false;
   int stationIdLengthAsString = (stationId == 0 ? 1 : (int)(log10(stationId)+1));
@@ -256,20 +270,21 @@ bool reportObservation(int stationId, int direction, int speed, int minWindSpeed
   strcat_P(requestPath, PSTR("/observations/"));
   
   // 123456789012345678901234567890123
-  // observation[direction]=3600        // 0-3600  - 37 characters
-  // &observation[speed]=nnnn           // 0-1000  - 34 characters
-  // &observation[min_wind_speed]=nnnn  // 0-1000  - 43 characters
-  // &observation[max_wind_speed]=nnnn  // 0-1000  - 43 characters
+  // observation[direction]=360.0        // 0-3600  - 38 characters
+  // &observation[speed]=nnn.n           // 0-1000  - 35 characters
+  // &observation[min_wind_speed]=nnn.n  // 0-1000  - 44 characters
+  // &observation[max_wind_speed]=nnn.n  // 0-1000  - 44 characters
   
-  char *body = (char *)malloc(37 + 34 + 43 + 43 + 1); 
+  char *body = (char *)malloc(38 + 35 + 44 + 44 + 1);
+
   strcpy_P(body, PSTR("observation[direction]="));
-  ultoa(direction, &body[strlen(body)], 10);
+  ftoa(&body[strlen(body)], direction, 1);
   strcat_P(body, PSTR("&observation[speed]="));
-  ultoa(speed, &body[strlen(body)], 10);
+  ftoa(&body[strlen(body)], speed, 1);
   strcat_P(body, PSTR("&observation[min_wind_speed]="));
-  ultoa(minWindSpeed, &body[strlen(body)], 10);
+  ftoa(&body[strlen(body)], minWindSpeed, 1);
   strcat_P(body, PSTR("&observation[max_wind_speed]="));
-  ultoa(maxWindSpeed, &body[strlen(body)], 10);  
+  ftoa(&body[strlen(body)], maxWindSpeed, 1);
     
   debug(F("Report "));debug(requestPath);debug(' ');debugln(body);
     

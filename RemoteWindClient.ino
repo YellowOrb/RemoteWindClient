@@ -168,14 +168,15 @@ void watchdogSetup(void) {
 /******************************************************************************
  * measure values and report if enough time has passed
  ******************************************************************************/
+float directionAvg;
 long directionVectorX = 0;
 long directionVectorY = 0;
-short directionAvg;
+
 unsigned long pulses;
-unsigned long avgPulses;
 unsigned long totalPulses = 0; // total amount of windPulses during PERIOD
-unsigned long maxPulses = 0; // max windPulses during SAMPLE_PERIOD
-unsigned long minPulses = 65535; // minimum amount of windPulses during SAMPLE_PERIOD
+float avgPulses;
+float maxPulses = 0.0; // max windPulses during SAMPLE_PERIOD
+float minPulses = 65535.0; // minimum amount of windPulses during SAMPLE_PERIOD
 
 unsigned long timePassed = 0; // time in ms passed variable used to measure time for PERIOD and SAMPLE_PERIOD
 unsigned long timePassedSinceLastSample = 0; // amount of time in ms since we last took a sample on values
@@ -192,18 +193,13 @@ void measure() {
      
     timePassedThisPeriod += timePassedSinceLastSample; 
        
-    pulses = getAndResetWindSpeed()*100L;  // scale up the pulse variable 100 times to have two decimals in the averages
+    pulses = getAndResetWindSpeed();
     
     // calculate approx windPulses / s
-    // we measure time in millis seconds and the minimum we can stora is 1 rotation / s and we update this twize every second so we
-    // need to use the milliseconds timing thus multiply the windPulses with 1000 since we cannot handle fractions
-    // so if pulses == 1, then that would give us 2 if the time is 500 ms
-    avgPulses = pulses * 1000L;
     debug(F("pulses = "));
     debug(pulses);
-    debug(F(", 1000*pulses = "));
-    debug(avgPulses);   
-    avgPulses = avgPulses/timePassedSinceLastSample;
+
+    avgPulses = (double)pulses/(double)timePassedSinceLastSample*1000.0;
     debug(F(", avg pulses = "));
     debugln(avgPulses);
     
@@ -226,16 +222,16 @@ void measure() {
     // By multiplying the vector with pulses a stronger wind will contribute more to the calculated average
     // Only check direction sensor if we have wind.
     if (pulses > 0) {
-      directionVectorY += (long)(sin(getWindDirection() * 3.14159 / 180) * pulses);
-      directionVectorX += (long)(cos(getWindDirection() * 3.14159 / 180) * pulses);
+      directionVectorY += (long)(sin(getWindDirection() * 3.14159 / 180.0) * pulses);
+      directionVectorX += (long)(cos(getWindDirection() * 3.14159 / 180.0) * pulses);
     }  
   
     if (directionVectorX == 0 && directionVectorY == 0) { // if the direction sensor has not been read
-      directionAvg = NULL;  // There is no wind, thus no wind direction
+      directionAvg = 0.0;  // There is no wind, thus no wind direction
     }else{
       // atan2 gives an angle in the interval -pi --- pi
-      directionAvg = atan2(directionVectorY, directionVectorX) * 180 / 3.14159; // Radians to degrees
-      if (directionAvg < 0) directionAvg += 360;  // Let angle always be positive
+      directionAvg = atan2(directionVectorY, directionVectorX) * 180.0 / 3.14159; // Radians to degrees
+      if (directionAvg < 0) directionAvg += 360.0;  // Let angle always be positive
     }
     
     debug(F("avg direction: "));
@@ -246,7 +242,6 @@ void measure() {
 unsigned int periodsPassed = 0; // keep counting number of periods to be able to do things once per hour or day
 unsigned long startConnectionTime;
 unsigned long lastReportTime;
-char totalLength;
 void report() {
   debug(F("Free RAM: "));debug(freeRam());debugln(F(" bytes."));
   periodsPassed++; // used to do things once an hour or day
@@ -264,9 +259,8 @@ void report() {
   // totalPulses/PERIOD is pulses per second and if we multiply with 67 cm/s we get current speed in cm/s
   debug(F("tot pulses = "));
   debugln(totalPulses);
-    
-  // removed the perimeter scaling, lets have the calibration at the server instead!
-  totalPulses = totalPulses/(samplePeriodsPassed*SAMPLE_PERIOD);
+
+  float windSpeed = 0.6667*(float)totalPulses/((float)samplePeriodsPassed*SAMPLE_PERIOD);
   samplePeriodsPassed = 0;
 
   setConnectionState(CONNECTED_TO_SERVER);
@@ -277,7 +271,7 @@ void report() {
   }
   
   if(CONNECTED_TO_SERVER==connectionState) {
-    reportObservation(stationId, directionAvg, totalPulses, minPulses, maxPulses);
+    reportObservation(stationId, directionAvg, windSpeed, minPulses*0.6667, maxPulses*0.6667);
     
     if(periodsPassed%(ONCE_PER_HOUR/PERIOD) == 0) {
       // anything we want to do once each hour
@@ -295,8 +289,8 @@ void report() {
   }
 
   totalPulses = 0;
-  maxPulses = 0;
-  minPulses = 65535;
+  maxPulses = 0.0;
+  minPulses = 65535.0;
   samplePeriodsPassed = 0;
   timePassedThisPeriod = 0;
   directionVectorX = directionVectorY = 0;
