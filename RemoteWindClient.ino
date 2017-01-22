@@ -290,12 +290,12 @@ void report() {
       // anything we want to do once each day
       periodsPassed = 0; // reset the counter
     }
-      
-    setConnectionState(NOT_CONNECTED);
     
     lastReportTime = millis() - startConnectionTime;
   }
 
+  setConnectionState(NOT_CONNECTED);
+  
   totalPulses = 0;
   maxPulsesPerSecond = 0.0;
   minPulsesPerSecond = 65535.0;
